@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Trident Monitor — Morph Lens</title>
+<style>
+  :root {
+    --substrate: #050510;
+    --text-primary: #e8e8f0;
+    --text-secondary: #8f8fc0;
+    --text-dim: #55558c;
+    --accent-node: #4ecdc4;
+    --accent-python: #ffe66d;
+    --accent-merged: #a8e6cf;
+    --accent-alert: #ff6b6b;
+    --accent-warn: #ffd93d;
+    --border: rgba(120,120,200,0.16);
+    --glass: rgba(10,10,25,0.86);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background:
+      radial-gradient(circle at 20% 12%, rgba(78,205,196,.12), transparent 32%),
+      radial-gradient(circle at 80% 30%, rgba(255,230,109,.08), transparent 28%),
+      radial-gradient(circle at 50% 100%, rgba(168,230,207,.08), transparent 34%),
+      var(--substrate);
+    color: var(--text-primary);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #boot-fallback {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    color: var(--text-secondary);
+    background: var(--substrate);
+    z-index: 9999;
+  }
+  #boot-fallback.hidden { display: none; }
+  #boot-fallback section {
+    max-width: 680px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 24px;
+    background: var(--glass);
+    text-align: center;
+  }
+
+  #trident-panel {
+    background: var(--glass);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 30;
+    flex-shrink: 0;
+  }
+
+  #panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+  #panel-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #trident-icon { width: 20px; height: 20px; position: relative; }
+  #trident-icon::before, #trident-icon::after { content: ''; position: absolute; background: var(--accent-node); border-radius: 2px; }
+  #trident-icon::before { width: 2px; height: 16px; left: 9px; top: 2px; }
+  #trident-icon::after { width: 16px; height: 2px; left: 2px; top: 4px; box-shadow: 0 6px 0 var(--accent-node), 0 12px 0 var(--accent-python); }
+
+  .control-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lens-btn, #scan-btn, #upload-btn {
+    padding: 7px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(100,100,180,0.15);
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.25s;
+  }
+  .lens-btn:hover, #scan-btn:hover, #upload-btn:hover { background: rgba(100,100,180,0.3); color: var(--text-primary); }
+  #scan-btn.scanning { animation: scanPulse 1s infinite; }
+  @keyframes scanPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.48; } }
+
+  #server-halves { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .half-card {
+    background: rgba(10,10,25,0.6);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    transition: all 0.35s;
+    position: relative;
+    overflow: hidden;
+  }
+  .half-card.active { border-color: var(--accent-merged); box-shadow: 0 0 20px rgba(168,230,207,0.1); }
+  .half-card.dead { border-color: var(--accent-alert); opacity: 0.78; }
+  .half-card.blocked { border-color: var(--accent-warn); opacity: 0.92; }
+  .half-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--status-color, var(--text-dim)); transition: background 0.3s; }
+
+  .half-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); transition: all 0.3s; }
+  .status-dot.alive { background: var(--accent-merged); box-shadow: 0 0 6px var(--accent-merged); animation: heartbeat 2s infinite; }
+  .status-dot.dead { background: var(--accent-alert); }
+  .status-dot.blocked, .status-dot.unknown { background: var(--accent-warn); animation: scanPulse 1.5s infinite; }
+  @keyframes heartbeat { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: 0.72; } }
+
+  .half-name { font-size: 14px; font-weight: 650; color: var(--text-primary); }
+  .half-url {
+    display: block;
+    width: 100%;
+    font-size: 10px;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(0,0,0,.25);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 7px;
+    outline: none;
+  }
+  .half-url:focus { border-color: var(--accent-node); }
+  .half-meta { font-size: 10px; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap; }
+
+  #merge-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px; background: rgba(10,10,25,0.42); border-radius: 10px; border: 1px solid var(--border); }
+  #merge-status { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; text-align: center; }
+  #merge-status.merged { color: var(--accent-merged); }
+  #merge-status.split { color: var(--accent-warn); }
+  #merge-status.lost { color: var(--accent-alert); }
+  .merge-connector { width: 40px; height: 2px; background: var(--border); transition: all 0.5s; }
+  .merge-connector.connected { background: var(--accent-merged); box-shadow: 0 0 8px var(--accent-merged); }
+  .merge-connector.broken { background: var(--accent-alert); box-shadow: 0 0 8px var(--accent-alert); }
+  .merge-connector.partial { background: var(--accent-warn); box-shadow: 0 0 8px var(--accent-warn); }
+
+  #chat-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .message { max-width: 88%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-wrap: break-word; animation: msgIn 0.25s ease; white-space: pre-wrap; }
+  @keyframes msgIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .message.user { align-self: flex-end; background: rgba(60,60,100,0.35); border: 1px solid rgba(100,100,180,0.15); color: var(--text-primary); border-bottom-right-radius: 4px; }
+  .message.morph { align-self: flex-start; background: rgba(15,15,30,0.82); border: 1px solid var(--border); color: var(--text-primary); border-bottom-left-radius: 4px; border-left: 3px solid var(--msg-accent, var(--accent-node)); }
+  .message .timestamp { font-size: 9px; opacity: 0.38; margin-top: 4px; display: block; }
+  .message.system { align-self: center; background: rgba(100,100,180,0.1); border: 1px solid var(--border); color: var(--text-secondary); font-size: 12px; padding: 6px 12px; border-radius: 20px; max-width: 95%; }
+  .message.error { align-self: center; background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3); color: #ffc2c2; font-size: 12px; max-width: 95%; }
+
+  #input-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--glass); backdrop-filter: blur(10px); }
+  #chat-input { flex: 1; background: rgba(10,10,20,0.82); border: 1px solid var(--border); border-radius: 18px; padding: 9px 14px; color: var(--text-primary); font-size: 14px; outline: none; min-width: 0; }
+  #chat-input:focus { border-color: var(--accent-node); }
+  #send-btn { width: 38px; height: 38px; border-radius: 50%; border: none; background: var(--accent-node); color: var(--substrate); font-size: 16px; cursor: pointer; display: grid; place-items: center; transition: transform 0.2s; }
+  #send-btn:hover { transform: scale(1.05); }
+  #file-input { display: none; }
+  #messages::-webkit-scrollbar { width: 3px; }
+  #messages::-webkit-scrollbar-track { background: transparent; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  @media (max-width: 640px) {
+    #server-halves { grid-template-columns: 1fr; }
+    .message { max-width: 92%; font-size: 13px; }
+    #panel-header { align-items: flex-start; flex-direction: column; }
+    .control-row { width: 100%; }
+    .lens-btn, #scan-btn, #upload-btn { flex: 1; }
+  }
+</style>
+</head>
+<body>
+<div id="boot-fallback"><section><div style="font-size:42px;color:#4ecdc4;margin-bottom:10px">⌬</div><h1>Trident Monitor loading…</h1><p>If this stays visible, the foreground lens failed before boot. Check the browser console.</p></section></div>
+
+<div id="trident-panel">
+  <div id="panel-header">
+    <div id="panel-title"><div id="trident-icon"></div>Trident Monitor · Morph Lens</div>
+    <div class="control-row">
+      <button id="scan-btn" type="button">Scan Halves</button>
+      <button id="upload-btn" type="button">Upload</button>
+      <button class="lens-btn" id="save-config" type="button">Save URLs</button>
+    </div>
+  </div>
+
+  <div id="server-halves">
+    <div class="half-card" id="half-node" data-half="node">
+      <div class="half-label"><div class="status-dot unknown" id="dot-node"></div>Node.js Half</div>
+      <div class="half-name">Synthia Server / Web Face</div>
+      <input class="half-url" id="url-node" value="https://synthia-server.onrender.com" autocomplete="off" spellcheck="false">
+      <div class="half-meta"><span id="latency-node">--ms</span><span id="route-node">-- routes</span></div>
+    </div>
+    <div class="half-card" id="half-python" data-half="python">
+      <div class="half-label"><div class="status-dot unknown" id="dot-python"></div>Python Half</div>
+      <div class="half-name">Synthia / Trident Engine</div>
+      <input class="half-url" id="url-python" value="https://synthia-server-1.onrender.com" autocomplete="off" spellcheck="false">
+      <div class="half-meta"><span id="latency-python">--ms</span><span id="model-python">-- model</span></div>
+    </div>
+  </div>
+
+  <div id="merge-bar"><span style="font-size:10px;color:var(--text-dim)">NODE</span><div class="merge-connector" id="connector"></div><span id="merge-status" class="unknown">Scanning...</span><div class="merge-connector" id="connector2"></div><span style="font-size:10px;color:var(--text-dim)">PY</span></div>
+</div>
+
+<div id="chat-area">
+  <div id="messages"></div>
+  <div id="input-bar">
+    <input type="file" id="file-input" multiple>
+    <input type="text" id="chat-input" placeholder="Ask Trident, upload files, or say what to set up..." autocomplete="off">
+    <button id="send-btn" type="button" aria-label="Send">➤</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const DEFAULTS = { nodeUrl: 'https://synthia-server.onrender.com', pythonUrl: 'https://synthia-server-1.onrender.com' };
+  const CONFIG_KEY = 'trident-monitor:morph-lens:v2';
+  const $ = (id) => document.getElementById(id);
+  const normalizeUrl = (url) => String(url || '').trim().replace(/\/+$/, '');
+  const nowTime = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const safeJson = (obj) => { try { return JSON.stringify(obj, null, 2); } catch { return String(obj); } };
+
+  const Chat = {
+    init() {
+      this.messagesEl = $('messages');
+      this.inputEl = $('chat-input');
+      this.inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') this.send(); });
+      $('send-btn').addEventListener('click', () => this.send());
+      $('upload-btn').addEventListener('click', () => $('file-input').click());
+      $('file-input').addEventListener('change', (event) => Upload.handleFiles(event.target.files));
+      $('scan-btn').addEventListener('click', () => TridentMonitor.scan());
+      $('save-config').addEventListener('click', () => TridentMonitor.saveConfig());
+      this.addSystem('Morph Lens active. This foreground can scan Synthia, accept uploads, and route chat when endpoints exist.');
+    },
+    async send() {
+      const text = this.inputEl.value.trim();
+      if (!text) return;
+      this.inputEl.value = '';
+      this.addMessage('user', text);
+      const lower = text.toLowerCase();
+      if (lower.includes('scan') || lower.includes('server') || lower.includes('half') || lower.includes('status')) {
+        await TridentMonitor.scan();
+        this.reportStatus();
+        return;
+      }
+      await TridentMonitor.routeChat(text);
+    },
+    reportStatus() {
+      const node = TridentMonitor.services.node;
+      const python = TridentMonitor.services.python;
+      let reply = '';
+      if (node.status === 'alive' && python.status === 'alive') reply = `Both halves are alive.\nNode: ${node.latency}ms\nPython: ${python.latency}ms\nTrident surface can route deeper work.`;
+      else if (node.status === 'alive') reply = `Node/Synthia web face is alive at ${node.latency}ms.\nPython side is ${python.status}.\nThe mouth works; deeper engine may need wiring.`;
+      else if (python.status === 'alive') reply = `Python/engine side is alive at ${python.latency}ms.\nNode side is ${node.status}.\nThe brain has signal, but the web face may need routing.`;
+      else if (node.status === 'blocked' || python.status === 'blocked') reply = `At least one half is reachable but CORS may be blocking the browser from reading it.\nThat means the server may exist, but it needs CORS or a proxy route.`;
+      else reply = 'No readable heartbeat yet. The page is alive, but the servers are silent from this browser.';
+      this.addMessage('morph', reply, node.status === 'alive' && python.status === 'alive' ? '#a8e6cf' : '#ffd93d');
+    },
+    addMessage(role, text, accent) {
+      const div = document.createElement('div');
+      div.className = `message ${role}`;
+      if (accent) div.style.setProperty('--msg-accent', accent);
+      div.innerHTML = `${escapeHtml(text)}<span class="timestamp">${nowTime()}</span>`;
+      this.messagesEl.appendChild(div);
+      this.scrollToBottom();
+    },
+    addSystem(text) {
+      const div = document.createElement('div');
+      div.className = 'message system';
+      div.textContent = text;
+      this.messagesEl.appendChild(div);
+      this.scrollToBottom();
+    },
+    addError(text) {
+      const div = document.createElement('div');
+      div.className = 'message error';
+      div.textContent = text;
+      this.messagesEl.appendChild(div);
+      this.scrollToBottom();
+    },
+    scrollToBottom() { this.messagesEl.scrollTop = this.messagesEl.scrollHeight; }
+  };
+
+  const TridentMonitor = {
+    services: {
+      node: { baseUrl: DEFAULTS.nodeUrl, status: 'unknown', latency: null, routes: [] },
+      python: { baseUrl: DEFAULTS.pythonUrl, status: 'unknown', latency: null, model: null }
+    },
+    loadConfig() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
+        this.services.node.baseUrl = normalizeUrl(saved.nodeUrl || DEFAULTS.nodeUrl);
+        this.services.python.baseUrl = normalizeUrl(saved.pythonUrl || DEFAULTS.pythonUrl);
+      } catch {
+        this.services.node.baseUrl = DEFAULTS.nodeUrl;
+        this.services.python.baseUrl = DEFAULTS.pythonUrl;
+      }
+      $('url-node').value = this.services.node.baseUrl;
+      $('url-python').value = this.services.python.baseUrl;
+    },
+    saveConfig() {
+      this.services.node.baseUrl = normalizeUrl($('url-node').value);
+      this.services.python.baseUrl = normalizeUrl($('url-python').value);
+      localStorage.setItem(CONFIG_KEY, JSON.stringify({ nodeUrl: this.services.node.baseUrl, pythonUrl: this.services.python.baseUrl }));
+      Chat.addSystem('Server URLs saved.');
+      this.scan();
+    },
+    async scan() {
+      const btn = $('scan-btn');
+      btn.classList.add('scanning');
+      btn.textContent = 'Scanning...';
+      this.services.node.baseUrl = normalizeUrl($('url-node').value);
+      this.services.python.baseUrl = normalizeUrl($('url-python').value);
+      Chat.addSystem('Scanning Synthia / Trident halves...');
+      await Promise.all([this.pingHalf('node'), this.pingHalf('python')]);
+      this.checkMerge();
+      btn.classList.remove('scanning');
+      btn.textContent = 'Scan Halves';
+    },
+    async pingHalf(half) {
+      const svc = this.services[half];
+      const card = $(`half-${half}`);
+      const dot = $(`dot-${half}`);
+      const latencyEl = $(`latency-${half}`);
+      setVisualStatus(card, dot, 'unknown');
+      latencyEl.textContent = 'checking';
+      const start = performance.now();
+      try {
+        const response = await fetchWithTimeout(`${svc.baseUrl}/health`, { method: 'GET', mode: 'cors', headers: { 'Accept': 'application/json,text/plain,*/*' } }, 8000);
+        const latency = Math.round(performance.now() - start);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text.slice(0, 120) }; }
+        svc.status = 'alive';
+        svc.latency = latency;
+        setVisualStatus(card, dot, 'alive');
+        latencyEl.textContent = `${latency}ms`;
+        if (half === 'node') {
+          svc.routes = data.routes || data.endpoints || data.availableRoutes || [];
+          $('route-node').textContent = `${Array.isArray(svc.routes) ? svc.routes.length || '?' : '?'} routes`;
+        } else {
+          svc.model = data.model || data.trident || data.engine || data.status || 'responding';
+          $('model-python').textContent = String(svc.model).slice(0, 28);
+        }
+        Chat.addSystem(`${half.toUpperCase()} half alive — ${latency}ms`);
+      } catch {
+        const opaque = await this.tryOpaquePing(svc.baseUrl);
+        if (opaque) {
+          svc.status = 'blocked';
+          svc.latency = null;
+          setVisualStatus(card, dot, 'blocked');
+          latencyEl.textContent = 'CORS?';
+          if (half === 'node') $('route-node').textContent = 'reachable?';
+          if (half === 'python') $('model-python').textContent = 'reachable?';
+          Chat.addSystem(`${half.toUpperCase()} may be reachable, but browser cannot read it. CORS/proxy likely.`);
+        } else {
+          svc.status = 'dead';
+          svc.latency = null;
+          setVisualStatus(card, dot, 'dead');
+          latencyEl.textContent = 'OFFLINE';
+          if (half === 'node') $('route-node').textContent = '-- routes';
+          if (half === 'python') $('model-python').textContent = '-- model';
+          Chat.addSystem(`${half.toUpperCase()} half silent — no readable heartbeat`);
+        }
+      }
+    },
+    async tryOpaquePing(baseUrl) {
+      for (const path of ['/health', '']) {
+        try {
+          await fetchWithTimeout(`${baseUrl}${path}`, { method: 'GET', mode: 'no-cors', cache: 'no-store' }, 6000);
+          return true;
+        } catch {}
+      }
+      return false;
+    },
+    checkMerge() {
+      const node = this.services.node.status;
+      const python = this.services.python.status;
+      const conn = $('connector');
+      const conn2 = $('connector2');
+      const status = $('merge-status');
+      const nodeReadable = node === 'alive';
+      const pyReadable = python === 'alive';
+      const nodeReachable = node === 'alive' || node === 'blocked';
+      const pyReachable = python === 'alive' || python === 'blocked';
+      if (nodeReadable && pyReadable) {
+        conn.className = 'merge-connector connected'; conn2.className = 'merge-connector connected'; status.className = 'merged'; status.textContent = 'MERGED — Trident Whole'; Chat.addSystem('Both halves breathing. Trident is one.');
+      } else if (nodeReachable && pyReachable) {
+        conn.className = 'merge-connector partial'; conn2.className = 'merge-connector partial'; status.className = 'split'; status.textContent = 'REACHABLE — CORS / route check needed'; Chat.addSystem('Both halves may exist, but at least one cannot be read by the browser.');
+      } else if (nodeReachable || pyReachable) {
+        conn.className = nodeReachable ? 'merge-connector partial' : 'merge-connector broken'; conn2.className = pyReachable ? 'merge-connector partial' : 'merge-connector broken'; status.className = 'split'; status.textContent = 'SPLIT — One half missing'; Chat.addSystem('Trident fractured. One half is missing or unreadable.');
+      } else {
+        conn.className = 'merge-connector broken'; conn2.className = 'merge-connector broken'; status.className = 'lost'; status.textContent = 'LOST — No signal'; Chat.addSystem('Trident is dark. Both halves silent.');
+      }
+    },
+    async routeChat(text) {
+      const node = this.services.node;
+      const candidates = ['/chat', '/api/chat', '/trident', '/api/trident', '/message', '/api/message'];
+      if (node.status !== 'alive') {
+        Chat.addMessage('morph', 'I hear you. The foreground lens is alive, but I need the Synthia Node half readable before I can route that message for real.', '#ffd93d');
+        return;
+      }
+      Chat.addSystem('Routing message to Synthia...');
+      for (const path of candidates) {
+        try {
+          const response = await fetchWithTimeout(`${node.baseUrl}${path}`, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json,text/plain,*/*' }, body: JSON.stringify({ message: text, source: 'trident-monitor-morph-lens' }) }, 12000);
+          if (!response.ok) continue;
+          const raw = await response.text();
+          let data = {};
+          try { data = raw ? JSON.parse(raw) : {}; } catch { data = { reply: raw }; }
+          const reply = data.reply || data.message || data.text || data.response || safeJson(data);
+          Chat.addMessage('morph', reply, '#a8e6cf');
+          return;
+        } catch {}
+      }
+      Chat.addMessage('morph', 'Synthia is readable, but I did not find a chat route yet. Add one of: /chat, /api/chat, /trident, /api/trident.', '#ffd93d');
+    }
+  };
+
+  const Upload = {
+    async handleFiles(fileList) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      Chat.addSystem(`Received ${files.length} file(s). Lens switched to intake.`);
+      const names = files.map(f => `${f.name} (${formatBytes(f.size)})`).join('\n');
+      Chat.addMessage('morph', `Intake detected:\n${names}`, '#4ecdc4');
+      const node = TridentMonitor.services.node;
+      if (node.status !== 'alive') {
+        Chat.addMessage('morph', 'Files are visible to the foreground lens, but Synthia Node is not readable yet. Scan/fix server route before upload can be sent.', '#ffd93d');
+        return;
+      }
+      const routes = ['/upload', '/api/upload', '/files/upload', '/api/files/upload'];
+      for (const route of routes) {
+        try {
+          const form = new FormData();
+          files.forEach(file => form.append('files', file));
+          form.append('source', 'trident-monitor-morph-lens');
+          Chat.addSystem(`Trying upload route ${route}...`);
+          const response = await fetchWithTimeout(`${node.baseUrl}${route}`, { method: 'POST', mode: 'cors', body: form }, 30000);
+          if (!response.ok) continue;
+          const raw = await response.text();
+          let data = {};
+          try { data = raw ? JSON.parse(raw) : {}; } catch { data = { response: raw }; }
+          Chat.addMessage('morph', `Synthia accepted upload via ${route}:\n${safeJson(data)}`, '#a8e6cf');
+          return;
+        } catch {}
+      }
+      Chat.addMessage('morph', 'No upload route accepted the files yet. Add one of: /upload, /api/upload, /files/upload, /api/files/upload.', '#ffd93d');
+    }
+  };
+
+  function setVisualStatus(card, dot, status) {
+    card.classList.remove('active', 'dead', 'blocked');
+    dot.className = `status-dot ${status}`;
+    if (status === 'alive') { card.classList.add('active'); card.style.setProperty('--status-color', 'var(--accent-merged)'); }
+    else if (status === 'blocked') { card.classList.add('blocked'); card.style.setProperty('--status-color', 'var(--accent-warn)'); }
+    else if (status === 'dead') { card.classList.add('dead'); card.style.setProperty('--status-color', 'var(--accent-alert)'); }
+    else card.style.setProperty('--status-color', 'var(--text-dim)');
+  }
+  function fetchWithTimeout(url, options = {}, ms = 10000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+  function escapeHtml(text) { const div = document.createElement('div'); div.textContent = String(text); return div.innerHTML; }
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return 'unknown size';
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB']; let size = bytes / 1024; let unit = units.shift();
+    while (size >= 1024 && units.length) { size /= 1024; unit = units.shift(); }
+    return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+  }
+
+  window.TridentMonitor = TridentMonitor;
+  window.Chat = Chat;
+  window.Upload = Upload;
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      $('boot-fallback').classList.add('hidden');
+      TridentMonitor.loadConfig();
+      Chat.init();
+      setTimeout(() => TridentMonitor.scan(), 800);
+    } catch (error) {
+      console.error(error);
+      $('boot-fallback').classList.remove('hidden');
+      $('boot-fallback').querySelector('p').textContent = `Boot error: ${error.message}`;
+    }
+  });
+})();
+</script>
+</body>
+</html>
