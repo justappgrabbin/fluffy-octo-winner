@@ -1,0 +1,36 @@
+{
+  "name": "morph-mir-system",
+  "version": "3.0.0",
+  "description": "Morph Neural Net v3 - Source-dominant file regeneration engine with MIR architecture",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "echo 'Tests not yet implemented'"
+  },
+  "keywords": [
+    "morph",
+    "mir",
+    "neural-net",
+    "file-regeneration",
+    "gnn",
+    "code-analysis"
+  ],
+  "author": "Morph",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/react": "^18.2.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0"
+  }
+}
